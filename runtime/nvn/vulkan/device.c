@@ -1792,8 +1792,8 @@ presented:
         }
     }
     if (g_debug_frame) LOG("===== debug frame %llu =====\n", (unsigned long long)total_frames);
-    {   // (testing) SAVAGEWIND_UPSCALE_AT=<frame>:<off|ultra|quality|balanced|performance>,... (ascending): the
-        // upscaler from that frame on, as the Video page sets it (A/B of the same view a few frames apart)
+    {   // (testing) SAVAGEWIND_UPSCALE_AT=<frame>:<off|ultra|quality|balanced|performance|dlss>,... (ascending): the
+        // upscaler from that frame on (FSR 1 in those modes; dlss: DLSS Quality), as the Video page sets it (A/B of the same view a few frames apart)
         static const char *next;
         static int init;
         if (!init) { init = 1; next = getenv("SAVAGEWIND_UPSCALE_AT"); }
@@ -1806,6 +1806,7 @@ presented:
             g_settings.upscaler = UPSCALE_OFF;
             for (int i = 0; i < 4; i++)
                 if (!strncmp(m, names[i], strlen(names[i]))) g_settings.upscaler = UPSCALE_FSR1, g_settings.upscale_quality = i;
+            if (!strncmp(m, "dlss", 4)) g_settings.upscaler = UPSCALE_DLSS, g_settings.upscale_quality = UPQ_QUALITY;
             LOG("[test] frame %llu: upscaler %d mode %d\n", (unsigned long long)total_frames, g_settings.upscaler,
                 g_settings.upscale_quality);
             next = strchr(m, ',');
