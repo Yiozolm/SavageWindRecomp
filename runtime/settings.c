@@ -90,6 +90,14 @@ void settings_load(void) {
             for (int i = 0; i < UPQ_COUNT; i++)
                 if (!strcmp(val, k_quality[i])) g_settings.upscale_quality = i;
         }
+        else if (!strcmp(key, "display")) {  // (auto, or "<place in the list> <name>")
+            int n = 0, at = 0;
+            g_settings.display_index = 0, g_settings.display_name[0] = 0;
+            if (strcmp(val, "auto") && sscanf(val, "%d %n", &n, &at) >= 1 && n > 0) {
+                g_settings.display_index = n;
+                snprintf(g_settings.display_name, sizeof g_settings.display_name, "%s", at ? val + at : "");
+            }
+        }
         else if (!strcmp(key, "window_size")) {  // (WxH in pixels, or default)
             int w = 0, h = 0;
             if (sscanf(val, "%dx%d", &w, &h) == 2 && w >= 320 && h >= 200 && w <= 16384 && h <= 16384)
@@ -237,6 +245,8 @@ void settings_save(void) {
     fprintf(f, "perf_overlay = %s\n", g_settings.perf_overlay == PERF_FULL ? "full" : g_settings.perf_overlay == PERF_FPS ? "fps" : "off");
     static const char *const ups[UPSCALE_COUNT] = {"off", "metalfx", "fsr1", "fsr3", "dlss"};
     int u = g_settings.upscaler, uq = g_settings.upscale_quality;
+    if (g_settings.display_index > 0) fprintf(f, "display = %d %s\n", g_settings.display_index, g_settings.display_name);
+    else fprintf(f, "display = auto\n");
     fprintf(f, "upscaler = %s\n", u >= 0 && u < UPSCALE_COUNT ? ups[u] : "off");
     fprintf(f, "upscaler_quality = %s\n", k_quality[uq >= 0 && uq < UPQ_COUNT ? uq : UPQ_QUALITY]);
     fprintf(f, "antialias = %s\n", g_settings.antialias == AA_SMAA ? "smaa" : "off");

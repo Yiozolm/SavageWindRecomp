@@ -26,6 +26,20 @@ const char *winsize_aspect(int w, int h);
 // the size). Any thread.
 bool winsize_virtual(int *w, int *h);
 
+// Video > Display: the displays connected, in the system's order (read again by winsize_refresh). Any thread.
+enum { WINDISP_MAX = 8 };
+typedef struct {
+    char name[64];
+    int w, h;    // desktop size, pixels
+    float hz;
+    bool primary;
+} WinDisplay;
+int winsize_displays(WinDisplay *out);
+// The setting's display in that list (0-based), -1: Automatic, or the display it names isn't connected. Any thread.
+int winsize_display_chosen(void);
+// The SDL_DisplayID the game should be on (0: Automatic: wherever the window is). Main thread.
+unsigned winsize_target_display(void);
+
 // Main thread (the window loop): read the window's display again when it changed; apply the setting to the window.
 void winsize_refresh(void *sdl_window);
 void winsize_apply(void *sdl_window);

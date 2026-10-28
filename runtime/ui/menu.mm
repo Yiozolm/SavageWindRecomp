@@ -593,6 +593,28 @@ static void tab_display(void) {
         g_settings.fullscreen = fs;
         g_want_window_apply.store(true);
     }
+    {   // Display (runtime/window_size.c): Automatic, or one of the displays connected
+        WinDisplay ds[WINDISP_MAX];
+        int n = winsize_displays(ds), cur = winsize_display_chosen() + 1;
+        static char names_buf[WINDISP_MAX + 1][128];
+        const char *names[WINDISP_MAX + 1];
+        snprintf(names_buf[0], sizeof names_buf[0], "%s", tr("Automatic"));
+        names[0] = names_buf[0];
+        for (int i = 0; i < n; i++) {
+            snprintf(names_buf[i + 1], sizeof names_buf[i + 1], "%d: %s  (%d x %d, %d Hz%s)", i + 1, ds[i].name, ds[i].w,
+                     ds[i].h, (int)lroundf(ds[i].hz), ds[i].primary ? tr(", primary") : "");
+            names[i + 1] = names_buf[i + 1];
+        }
+        if (n < 2) opt_disable_next();
+        if (opt_choice("Display", &cur, names, n + 1, 0,
+                       "The monitor the game shows on, in a window and in fullscreen. Automatic: where the window is "
+                       "(the primary display at start; drag the window to another, or use the system's keys). The "
+                       "window sizes below are those of the display chosen.")) {
+            g_settings.display_index = cur;
+            snprintf(g_settings.display_name, sizeof g_settings.display_name, "%s", cur ? ds[cur - 1].name : "");
+            g_want_window_apply.store(true);
+        }
+    }
     {   // Window size (runtime/window_size.c): the sizes the display can show, its own first, then grouped by shape
         WinSize list[WINSIZE_MAX];
         static char names_buf[WINSIZE_MAX][64];

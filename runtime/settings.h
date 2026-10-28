@@ -42,6 +42,11 @@ enum { FG_OFF = 0, FG_FSR3 = 1, FG_DLSS = 2, FG_COUNT };
 #define FG_MULT_MAX 4
 typedef struct {
     bool fullscreen;
+    // Video > Display: the monitor the game shows on (runtime/window_size.c). 0: Automatic (where the window is; the
+    // primary display at start), else its place in the system's list (1..) and its name, which finds it again when
+    // the order changes
+    int display_index;
+    char display_name[64];
     int window_w, window_h;  // Video > Window size, pixels (0: not chosen; runtime/window_size.c)
     int upscaler;        // UPSCALE_*: Off (render at the window's size), or render smaller and scale up
     int upscale_quality; // UPQ_*: the upscaler's mode (how much smaller it renders)

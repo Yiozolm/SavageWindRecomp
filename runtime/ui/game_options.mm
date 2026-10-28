@@ -274,6 +274,30 @@ void build_items(void) {
     v.push_back(toggle(P_VIDEO, "Fullscreen", "Fills the screen. Also F11 or Alt+Enter.",
                        [](const Item &) { return (int)g_settings.fullscreen; },
                        [](const Item &, int x) { g_settings.fullscreen = x; menu_request_window_apply(); }, 0));
+    // Display: Automatic, or one of the displays connected (runtime/window_size.c)
+    v.push_back(choice(P_VIDEO, "Display", "The monitor the game shows on. Automatic: where the window is.",
+                       [](const Item &) {
+                           WinDisplay ds[WINDISP_MAX];
+                           return winsize_displays(ds) + 1;
+                       },
+                       [](const Item &, int x) {
+                           static char buf[128];
+                           WinDisplay ds[WINDISP_MAX];
+                           int n = winsize_displays(ds);
+                           if (x <= 0 || x > n) return tr("Automatic");
+                           snprintf(buf, sizeof buf, "%d: %s", x, ds[x - 1].name);
+                           return (const char *)buf;
+                       },
+                       [](const Item &) { return winsize_display_chosen() + 1; },
+                       [](const Item &, int x) {
+                           WinDisplay ds[WINDISP_MAX];
+                           int n = winsize_displays(ds);
+                           g_settings.display_index = x > 0 && x <= n ? x : 0;
+                           snprintf(g_settings.display_name, sizeof g_settings.display_name, "%s",
+                                    g_settings.display_index ? ds[x - 1].name : "");
+                           menu_request_window_apply();
+                       },
+                       0));
     // Window size: a button showing the size; A drops the sizes down as a list over it (menu.mm size_list_draw)
     Item ws = button(P_VIDEO, "Window size", "", nullptr, A_SIZE_LIST, 0);
     ws.label = [](const Item &, int) {

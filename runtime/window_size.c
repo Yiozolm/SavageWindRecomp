@@ -7,11 +7,16 @@
 //   switches the display to it (exclusive fullscreen); any other (a 21:9 size on a 16:9 display) stays borderless and
 //   the game image is that size, scaled to fit the screen (winsize_virtual; runtime/nvn/vulkan/device.c).
 // Sizes are pixels; SDL's window sizes are pixels / the display's pixel density (1 on Windows).
+// Video > Display (`display = auto | <n> <name>`): Automatic leaves the window where it is (made on the primary
+// display); a display chosen gets the window made on it and, when the setting changes, moved there (out of
+// fullscreen first) before the size and fullscreen apply. It is found by name (of several alike, the one at its place
+// in the system's list), so a changed order keeps it; a display no longer connected is Automatic.
 #include "window_size.h"
 
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 
 #include <SDL3/SDL.h>
@@ -33,6 +38,9 @@ static float g_density = 1;            // its pixel density (window size = pixel
 static WinSize g_modes[64];            // its fullscreen modes' sizes
 static int g_nmodes;
 static SDL_DisplayID g_display;
+static WinDisplay g_disps[WINDISP_MAX];  // Video > Display: the displays connected (winsize_refresh)
+static SDL_DisplayID g_disp_ids[WINDISP_MAX];
+static int g_ndisps;
 static WinSize g_virtual;              // fullscreen on a size the display has no mode for (0 x 0: none)
 static float g_hz;                     // its refresh rate (0: not known)
 
@@ -155,8 +163,82 @@ bool winsize_virtual(int *w, int *h) {
     return true;
 }
 
+// The displays connected, into g_disps (main thread)
+static void read_displays(void) {
+    int count = 0;
+    SDL_DisplayID *ids = SDL_GetDisplays(&count);
+    WinDisplay ds[WINDISP_MAX];
+    SDL_DisplayID dids[WINDISP_MAX];
+    int n = 0;
+    SDL_DisplayID prim = SDL_GetPrimaryDisplay();
+    for (int i = 0; ids && i < count && n < WINDISP_MAX; i++) {
+        const SDL_DisplayMode *dm = SDL_GetDesktopDisplayMode(ids[i]);
+        const char *nm = SDL_GetDisplayName(ids[i]);
+        WinDisplay *d = &ds[n];
+        memset(d, 0, sizeof *d);
+        snprintf(d->name, sizeof d->name, "%s", nm && *nm ? nm : "Display");
+        float density = dm && dm->pixel_density > 0 ? dm->pixel_density : 1;
+        d->w = dm ? (int)lroundf(dm->w * density) : 0, d->h = dm ? (int)lroundf(dm->h * density) : 0;
+        d->hz = dm ? dm->refresh_rate : 0;
+        d->primary = ids[i] == prim;
+        dids[n++] = ids[i];
+    }
+    SDL_free(ids);
+    pthread_mutex_lock(&g_m);
+    bool changed = n != g_ndisps;
+    for (int i = 0; i < n && !changed; i++) changed = dids[i] != g_disp_ids[i] || strcmp(ds[i].name, g_disps[i].name);
+    for (int i = 0; i < n; i++) g_disps[i] = ds[i], g_disp_ids[i] = dids[i];
+    g_ndisps = n;
+    pthread_mutex_unlock(&g_m);
+    for (int i = 0; changed && i < n; i++)
+        LOG("[window] display %d of %d: %s, %dx%d, %.2f Hz%s\n", i + 1, n, ds[i].name, ds[i].w, ds[i].h, ds[i].hz,
+            ds[i].primary ? " (primary)" : "");
+}
+
+int winsize_displays(WinDisplay *out) {
+    pthread_mutex_lock(&g_m);
+    int n = g_ndisps;
+    for (int i = 0; i < n; i++) out[i] = g_disps[i];
+    pthread_mutex_unlock(&g_m);
+    return n;
+}
+
+// The setting's display: the one of its name (of several with that name, the one at its place, else the first), else
+// the one at its place; -1: Automatic, or none (g_m held)
+static int chosen_locked(void) {
+    int idx = g_settings.display_index - 1;
+    if (idx < 0) return -1;
+    const char *name = g_settings.display_name;
+    int first = -1;
+    for (int i = 0; name[0] && i < g_ndisps; i++)
+        if (!strcmp(g_disps[i].name, name)) {
+            if (i == idx) return i;
+            if (first < 0) first = i;
+        }
+    if (first >= 0) return first;
+    return idx < g_ndisps && !name[0] ? idx : -1;  // (a name no display has: that monitor is gone, Automatic)
+}
+
+int winsize_display_chosen(void) {
+    pthread_mutex_lock(&g_m);
+    int i = chosen_locked();
+    pthread_mutex_unlock(&g_m);
+    return i;
+}
+
+unsigned winsize_target_display(void) {
+    read_displays();
+    pthread_mutex_lock(&g_m);
+    int i = chosen_locked();
+    SDL_DisplayID d = i >= 0 ? g_disp_ids[i] : 0;
+    pthread_mutex_unlock(&g_m);
+    return d;
+}
+
 void winsize_refresh(void *win) {
+    read_displays();
     SDL_DisplayID d = win ? SDL_GetDisplayForWindow((SDL_Window *)win) : 0;
+    if (!d) d = winsize_target_display();  // (no window yet: the chosen display, else the primary one)
     if (!d) d = SDL_GetPrimaryDisplay();
     const SDL_DisplayMode *dm = d ? SDL_GetDesktopDisplayMode(d) : NULL;
     if (!dm) return;
@@ -214,6 +296,16 @@ void winsize_apply(void *win) {
     first = false;
     winsize_refresh(w);
     bool fs = g_settings.fullscreen && !test;
+    // Video > Display: onto the chosen display first (out of fullscreen to move), its sizes then offered
+    SDL_DisplayID target = test ? 0 : winsize_target_display();
+    if (target && SDL_GetDisplayForWindow(w) != target) {
+        if (SDL_GetWindowFlags(w) & SDL_WINDOW_FULLSCREEN) SDL_SetWindowFullscreen(w, false);
+        if (SDL_GetWindowFlags(w) & SDL_WINDOW_MAXIMIZED) SDL_RestoreWindow(w);
+        SDL_SetWindowPosition(w, SDL_WINDOWPOS_CENTERED_DISPLAY(target), SDL_WINDOWPOS_CENTERED_DISPLAY(target));
+        SDL_SyncWindow(w);
+        LOG("[window] moved to display %u\n", (unsigned)target);
+        winsize_refresh(w);
+    }
     WinSize s = winsize_effective(fs), desk = winsize_desktop(), virt = {0, 0};
     SDL_DisplayID d = SDL_GetDisplayForWindow(w);
     if (fs) {
