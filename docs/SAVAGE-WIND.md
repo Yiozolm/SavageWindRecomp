@@ -1582,9 +1582,20 @@ frame's PSNR against each is 1.5-2.5 dB over theirs against each other, so it li
 
 ## Frame generation (NVIDIA DLSS)
 
-Video > Frame generation: NVIDIA DLSS (`frame_generation = 2`; greyed where it can't run) makes the frame between each
-two with NVIDIA's DLSS Frame Generation, 2x, on GeForce RTX 40 and later (Windows; the NGX DLL as DLSS Super
-Resolution's, `nvngx_dlssg.dll` next to it). Elsewhere, or when NGX can't make the feature, the choice runs AMD FSR 3.
+Video > Frame generation: NVIDIA DLSS (`frame_generation = 2`; greyed where it can't run) makes the frames between each
+two with NVIDIA's DLSS Frame Generation on GeForce RTX 40 and later (Windows; the NGX DLL as DLSS Super Resolution's,
+`nvngx_dlssg.dll` next to it). Elsewhere, or when NGX can't make the feature, the choice runs AMD FSR 3.
+
+**Multi frame generation.** Video > Frame generation multiplier (`frame_generation_multiplier = 2|3|4`;
+`SAVAGEWIND_FG_MULT` in tests): with DLSS, the frames on screen for each the game draws. 3x and 4x make two or three
+frames between each two, where NGX makes that many (its MultiFrameCountMax: GeForce RTX 50; values above it are greyed
+and the most it makes below the setting runs). FSR 3 is always 2x. `vk_dlssg_dispatch` evaluates once per frame
+(multiFrameIndex 1..n of multiFrameCount n) into its own image (`fg_image` 2..4), all in the frame's command buffer;
+`vk_fg_generate` hands them to `present_locked` in order. The present thread presents the first once it is drawn and
+the others and the game's frame k / (n + 1) of the game's frame time after it (`present_wait_turn`; n = 1 is the half
+frame above); up to n + 1 of a group wait their turn (`present_wait_room`, a present queue of 8), the swapchain has
+one image more for each frame DLSS can make, and the game is paced at 1 / (n + 1) of Video > Frame rate
+(`framepace_period_ns`, `g_fg_active` = n). `SAVAGEWIND_FG_SHOT_AT` saves `_gen`, `_gen2`, `_gen3`.
 
 **Driving it.** NVIDIA's recommended path is Streamline, which takes over the swapchain's present and needs Reflex.
 Savage Wind uses NGX's own frame generation API instead (`nvsdk_ngx_helpers_dlssg_vk.h`, the DLSS SDK):
@@ -1618,6 +1629,18 @@ rate 60: 30 drawn + 30 generated; Riverside Stable, turning the camera; NGX's DL
   they are and lower with them wrong (0.37 with y flipped, 0.30 with x flipped, 0.31 without vectors), so the signs
   are right; the trunk edges in a turn are where they belong, single and clean, the texture softer than the game's.
   Untransposed matrices gave 0.49 against 0.57 (single runs).
+- Multi frame generation, frame rate No limit (same scene; the [fg] and [present] lines):
+
+  | Multiplier | Drawn | Presented | DLSS frame generation GPU time per drawn frame |
+  |---|---|---|---|
+  | 2x | ~50 | 97-104 | 3.7-4.1 ms |
+  | 3x | ~43 | 125-133 | 6.7-6.9 ms |
+  | 4x | ~36 | 136-152 | 9.6-9.9 ms |
+
+  Each frame more costs about 3 ms here (NVIDIA's table has the later ones cheaper), so on this GPU 4x adds little to
+  3x. The presents come every 7.0-7.9 ms with a standard deviation of 0.6-1.0 ms. At 4x the three generated frames go
+  from the earlier game frame to the later one in order (PSNR against the earlier 24.9, 23.0, 21.9 dB; against the
+  later 21.9, 22.9, 24.8).
 - Not looked at yet: NVIDIA's debug views (they need NGX's development DLL), latency, Link running, and the frames on
   a real display. On a PC where the NVIDIA app's DLSS override is on, NGX loads the app's DLL
   (`C:\ProgramData\NVIDIA\NGX\models\dlssg`) instead of the one next to the game.

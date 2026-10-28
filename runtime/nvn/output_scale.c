@@ -29,6 +29,7 @@
 #ifndef __APPLE__
 extern bool vk_dlss_available(void);
 extern bool vk_dlssg_available(void);
+extern int vk_dlssg_max_mult(void);
 #endif
 
 #define MAX_TEX 16384.0
@@ -48,6 +49,25 @@ bool frame_gen_available(int fg) {
 #else
     return fg == FG_OFF || fg == FG_FSR3 || (fg == FG_DLSS && vk_dlssg_available());
 #endif
+}
+
+bool frame_gen_mult_available(int fg, int mult) {
+#ifdef __APPLE__
+    return mult == FG_MULT_MIN;
+#else
+    if (mult == FG_MULT_MIN) return true;
+    return fg == FG_DLSS && frame_gen_available(FG_DLSS) && mult <= vk_dlssg_max_mult();
+#endif
+}
+
+int frame_gen_mult(int fg) {
+    static int forced = -1;  // SAVAGEWIND_FG_MULT=2|3|4 overrides the setting (tests)
+    if (forced < 0) forced = getenv("SAVAGEWIND_FG_MULT") ? atoi(getenv("SAVAGEWIND_FG_MULT")) : 0;
+    int m = forced ? forced : g_settings.frame_gen_mult;
+    if (m < FG_MULT_MIN) m = FG_MULT_MIN;
+    if (m > FG_MULT_MAX) m = FG_MULT_MAX;
+    while (m > FG_MULT_MIN && !frame_gen_mult_available(fg, m)) m--;
+    return m;
 }
 
 double upscale_mode_factor(int q) {

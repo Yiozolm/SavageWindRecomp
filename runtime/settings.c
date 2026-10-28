@@ -103,6 +103,10 @@ void settings_load(void) {
         else if (!strcmp(key, "frame_generation"))  // (0 off, 1 AMD FSR 3, 2 NVIDIA DLSS; or their names)
             g_settings.frame_gen = !strcmp(val, "dlss") || atoi(val) == FG_DLSS ? FG_DLSS
                                  : !strcmp(val, "fsr3") || atoi(val) == FG_FSR3 ? FG_FSR3 : FG_OFF;
+        else if (!strcmp(key, "frame_generation_multiplier")) {  // (2, 3 or 4)
+            int x = atoi(val);
+            g_settings.frame_gen_mult = x < FG_MULT_MIN ? FG_MULT_MIN : x > FG_MULT_MAX ? FG_MULT_MAX : x;
+        }
         else if (!strcmp(key, "sharpening")) {  // (percent, in steps of 10)
             int p = atoi(val);
             g_settings.sharpening = p < 0 ? 0 : p > 100 ? 10 : (p + 5) / 10;
@@ -240,7 +244,9 @@ void settings_save(void) {
     if (an >= 1 && an <= 4) fprintf(f, "anisotropy = %dx\n", 1 << an);
     else fprintf(f, "anisotropy = game\n");
     fprintf(f, "sharpening = %d\n", g_settings.sharpening * 10);
-    fprintf(f, "frame_generation = %d\n", g_settings.frame_gen ? 1 : 0);
+    // (a number: builds that knew only FSR 3 read any non-zero value as it)
+    fprintf(f, "frame_generation = %d\n", g_settings.frame_gen >= 0 && g_settings.frame_gen < FG_COUNT ? g_settings.frame_gen : FG_OFF);
+    fprintf(f, "frame_generation_multiplier = %d\n", g_settings.frame_gen_mult >= FG_MULT_MIN ? g_settings.frame_gen_mult : FG_MULT_MIN);
     fprintf(f, "dpad_move = %d\n", g_settings.dpad_move);
     fprintf(f, "left_stick_deadzone = %.0f\n", g_settings.stick_deadzone[0] * 100);
     fprintf(f, "right_stick_deadzone = %.0f\n", g_settings.stick_deadzone[1] * 100);

@@ -31,6 +31,7 @@ static unsigned g_instance_ext_count, g_device_ext_count;
 static bool g_exts_queried;
 static bool g_ngx_up;        // NGX initialized (vk_dlss_init)
 static bool g_fg_available;  // DLSS Frame Generation runs here (RTX 40 and later)
+static int g_fg_max_mult = 2;  // frames on screen for each drawn it makes here (MultiFrameCountMax + 1; RTX 50: more)
 
 static const char *result_name(NVSDK_NGX_Result r) {
     switch (r) {
@@ -508,7 +509,12 @@ bool vk_dlss_init(void) {
     int fg = 0;
     g_fg_available = NVSDK_NGX_SUCCEED(NVSDK_NGX_Parameter_GetI(g_capability_params,
                                                                 NVSDK_NGX_Parameter_FrameGeneration_Available, &fg)) && fg == 1;
-    LOG("[dlss] Frame Generation %s\n", g_fg_available ? "available" : "unavailable");
+    unsigned mfc = 0;
+    if (g_fg_available && NVSDK_NGX_SUCCEED(NVSDK_NGX_Parameter_GetUI(g_capability_params,
+                                                                      NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax, &mfc)) &&
+        mfc > 1)
+        g_fg_max_mult = mfc + 1 > 4 ? 4 : (int)mfc + 1;  // (Video > Frame generation multiplier: up to 4x)
+    LOG("[dlss] Frame Generation %s (up to %dx)\n", g_fg_available ? "available" : "unavailable", g_fg_max_mult);
     int available = 0;
     r = NVSDK_NGX_Parameter_GetI(g_capability_params, NVSDK_NGX_Parameter_SuperSampling_Available, &available);
     g_available = ok(r, "SuperSampling.Available") && available != 0;
@@ -614,6 +620,7 @@ static uint32_t g_fg_w, g_fg_h, g_fg_rw, g_fg_rh;
 static VkFormat g_fg_format;
 
 bool vk_dlssg_available(void) { return g_fg_available; }
+int vk_dlssg_max_mult(void) { return g_fg_available ? g_fg_max_mult : 2; }
 
 void vk_dlssg_release(void) {
     if (g_fg) NVSDK_NGX_VULKAN_ReleaseFeature(g_fg);
@@ -712,7 +719,6 @@ bool vk_dlssg_dispatch(VkCommandBuffer cb, const DlssgFrame *f) {
     mul4(pi, si, t), to_ngx(t, op.clipToCameraView);
     static const double id[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     to_ngx(id, op.clipToLensClip);
-    op.multiFrameCount = 1, op.multiFrameIndex = 1;
     // (exec.c's motion vectors: uv in the previous frame minus uv in this one; NGX takes pixels of their image)
     op.mvecScale[0] = (float)rw, op.mvecScale[1] = (float)rh;
     static float msx = 0, msy = 0;  // (testing) SAVAGEWIND_DLSSG_MVSIGN=<x>,<y>: the vectors' signs
@@ -741,15 +747,25 @@ bool vk_dlssg_dispatch(VkCommandBuffer cb, const DlssgFrame *f) {
     NVSDK_NGX_Resource_VK hudless = fg_resource(f->hudless, f->view_format, false);
     NVSDK_NGX_Resource_VK depth = fg_resource(f->depth, f->depth->format, false);
     NVSDK_NGX_Resource_VK motion = fg_resource(f->motion, f->motion->format, false);
-    NVSDK_NGX_Resource_VK out = fg_resource(f->out, f->out->format, true);
-    NVSDK_NGX_VK_DLSSG_Eval_Params ev = {};
-    ev.pBackbuffer = &color, ev.pDepth = &depth, ev.pMVecs = &motion, ev.pHudless = &hudless;
-    ev.pOutputInterpFrame = &out;
-    NVSDK_NGX_Result r = NGX_VK_EVALUATE_DLSSG(cb, g_fg, g_fg_params, &ev, &op);
-    if (r != NVSDK_NGX_Result_Success) {
-        static int n;
-        if (n++ < 8) LOG("[dlss] frame generation: evaluate: %s (%#x)\n", result_name(r), (unsigned)r);
-        return false;
+    // Multi frame generation: one evaluation per frame, multiFrameIndex 1 .. count (the later ones reuse the first's
+    // work, NVIDIA's guide). A change of count starts over.
+    static int last_count;
+    if (f->count != last_count) op.reset = true;
+    last_count = f->count;
+    op.multiFrameCount = (unsigned)f->count;
+    for (int k = 0; k < f->count; k++) {
+        NVSDK_NGX_Resource_VK out = fg_resource(f->out[k], f->out[k]->format, true);
+        NVSDK_NGX_VK_DLSSG_Eval_Params ev = {};
+        ev.pBackbuffer = &color, ev.pDepth = &depth, ev.pMVecs = &motion, ev.pHudless = &hudless;
+        ev.pOutputInterpFrame = &out;
+        op.multiFrameIndex = (unsigned)k + 1;
+        if (k) vk_full_barrier(cb);
+        NVSDK_NGX_Result r = NGX_VK_EVALUATE_DLSSG(cb, g_fg, g_fg_params, &ev, &op);
+        if (r != NVSDK_NGX_Result_Success) {
+            static int n;
+            if (n++ < 8) LOG("[dlss] frame generation: evaluate %d of %d: %s (%#x)\n", k + 1, f->count, result_name(r), (unsigned)r);
+            return false;
+        }
     }
     return true;
 }
@@ -772,6 +788,7 @@ bool vk_dlss_apply(VkCommandBuffer, TexBackend *, TexBackend *, TexBackend *, Te
     return false;
 }
 bool vk_dlssg_available(void) { return false; }
+int vk_dlssg_max_mult(void) { return 2; }
 bool vk_dlssg_live(void) { return false; }
 void vk_dlssg_release(void) {}
 bool vk_dlssg_dispatch(VkCommandBuffer, const DlssgFrame *) { return false; }

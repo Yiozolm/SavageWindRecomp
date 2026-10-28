@@ -787,6 +787,20 @@ static void tab_display(void) {
                          "the game's own frames. AMD FSR 3 runs on any graphics card; fast moves can leave faint "
                          "smears around Link and what moves on its own. NVIDIA DLSS: NVIDIA's AI frame generation, "
                          "on NVIDIA RTX 40 and later graphics cards.");
+        // DLSS's multi frame generation: 3x and 4x where the GPU makes that many (RTX 50); greyed with the others
+        const char *multn[] = {"2x", "3x", "4x"};
+        bool mult_avail[FG_MULT_MAX - FG_MULT_MIN + 1];
+        for (int i = 0; i <= FG_MULT_MAX - FG_MULT_MIN; i++) mult_avail[i] = frame_gen_mult_available(FG_DLSS, FG_MULT_MIN + i);
+        int mi = (g_settings.frame_gen_mult >= FG_MULT_MIN ? g_settings.frame_gen_mult : FG_MULT_MIN) - FG_MULT_MIN;
+        static int mult_shown = -1;
+        if (g_settings.frame_gen != FG_DLSS) opt_disable_next();
+        if (opt_choice_avail("Frame generation multiplier", &mi, &mult_shown, multn, mult_avail,
+                             FG_MULT_MAX - FG_MULT_MIN + 1, 0,
+                             "NVIDIA DLSS only: the frames on screen for each the game draws. 3x and 4x (NVIDIA RTX 50 "
+                             "and later) make two or three frames between each two: the game draws a third or a "
+                             "quarter of the frame rate above (40 or 30 with 120), and the controls answer at that "
+                             "rate. Best with a high refresh rate display."))
+            g_settings.frame_gen_mult = FG_MULT_MIN + mi;
     }
 #endif
     opt_toggle("Asynchronous shaders", &g_settings.async_shaders, false,

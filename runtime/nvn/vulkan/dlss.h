@@ -30,7 +30,8 @@ typedef struct {
     VkFormat view_format; // (the UNORM format of the two: the interpolated frame's)
     TexBackend *depth;    // the 3D scene's depth
     TexBackend *motion;   // camera motion vectors at depth's size (RG16F, uv: where each pixel was - here)
-    TexBackend *out;      // the interpolated frame (storage image, color's size and view_format)
+    TexBackend *out[3];   // the interpolated frames, in order (storage images, color's size and view_format)
+    int count;            // how many (1 .. vk_dlssg_max_mult() - 1): multi frame generation beyond 1
     // the world camera: view-projection now and in the previous frame, and projection (row-major, column vectors,
     // OpenGL's clip space: z -1..1)
     double vp[16], prev_vp[16], proj[16];
@@ -41,8 +42,9 @@ typedef struct {
     bool reset;           // a cut: no history
 } DlssgFrame;
 bool vk_dlssg_available(void);
-// Records the frame between the previous call's and this one into f->out. false: not made (logged); NGX unable to
-// make the feature at all: vk_dlssg_available false from then on.
+int vk_dlssg_max_mult(void);  // frames on screen for each drawn it can make here (2: one generated frame)
+// Records the f->count frames between the previous call's and this one into f->out[]. false: not made (logged); NGX
+// unable to make the feature at all: vk_dlssg_available false from then on.
 bool vk_dlssg_dispatch(VkCommandBuffer cb, const DlssgFrame *f);
 bool vk_dlssg_live(void);     // the feature is made (its VRAM held)
 void vk_dlssg_release(void);  // (the GPU idle first: the caller's)

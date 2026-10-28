@@ -19,6 +19,10 @@ void output_scale_screen(double sw, double sh, int iw, int ih, OutScale *o);
 // = window / factor per axis), and the factor in use (1: Off)
 bool upscaler_available(int u);
 bool frame_gen_available(int fg);  // FG_*: Video > Frame generation's choices this GPU can run
+// Video > Frame generation multiplier: whether frame generation fg (FG_*) makes mult - 1 frames for each drawn here,
+// and the multiplier in use with it (the setting, or the most it makes below that)
+bool frame_gen_mult_available(int fg, int mult);
+int frame_gen_mult(int fg);
 bool upscale_modes_available(void);  // (rendering below the window's size: needs render-target scaling)
 double upscale_mode_factor(int q);
 double upscale_factor(void);
