@@ -239,6 +239,8 @@ static void create_device(void) {
         if (has_ext(ep, ne, ngx_ext[i])) ext[n_ext++] = ngx_ext[i];
         else LOG("[dlss] required device extension unavailable: %s\n", ngx_ext[i]);
     }
+    bool ngx_bda = false;  // (DLSS Frame Generation: VK_KHR_buffer_device_address and its feature, bufferDeviceAddress)
+    for (uint32_t i = 0; i < n_ext; i++) ngx_bda |= !strcmp(ext[i], VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
     bool addr_report = g_addr_report_hi && has_ext(ep, ne, VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
     if (addr_report) ext[n_ext++] = VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME;
     if (g_addr_report_hi) LOG("[vk] address binding report %s\n", addr_report ? "on" : "not supported");
@@ -405,7 +407,9 @@ static void create_device(void) {
                                             .samplerMirrorClampToEdge = WANT(f12_have, samplerMirrorClampToEdge),
                                             .uniformAndStorageBuffer8BitAccess = WANT(f12_have, uniformAndStorageBuffer8BitAccess),
                                             .storageBuffer8BitAccess = WANT(f12_have, storageBuffer8BitAccess),
-                                            .scalarBlockLayout = WANT(f12_have, scalarBlockLayout), .pNext = &f13};
+                                            .scalarBlockLayout = WANT(f12_have, scalarBlockLayout),
+                                            .bufferDeviceAddress = ngx_bda && WANT(f12_have, bufferDeviceAddress),
+                                            .pNext = &f13};
     VkPhysicalDeviceVulkan11Features f11 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
                                             .storageBuffer16BitAccess = WANT(f11_have, storageBuffer16BitAccess), .pNext = &f12};
 #undef WANT
@@ -1575,7 +1579,8 @@ static uint64_t pso_wait(void) {  // ns waited
 
 // Frame generation (Video > Frame generation; exec.c vk_fg_generate): wanted in play, not over the menus (the pause
 // menu's pages, the map, the title screen, the F1 menu), where the picture mostly stands and the game's own frames
-// keep its cursor crisp. SAVAGEWIND_FG=0/1 overrides the setting (tests).
+// keep its cursor crisp. SAVAGEWIND_FG=0/1/2 (or off/fsr3/dlss) overrides the setting (tests). g_fg_want: FG_FSR3 or
+// FG_DLSS, 0 for none; DLSS where NGX can't run it is FSR 3.
 extern volatile int g_fg_want;
 extern volatile int g_fg_active;  // (framepace.c: the game draws every other presented frame)
 TexBackend *vk_fg_generate(NvnTexture *t, TexBackend *b);
@@ -1587,17 +1592,26 @@ void vk_fg_wait_idle(void) {
     vkDeviceWaitIdle(g_vk.dev);
 }
 
-static bool fg_wanted(void) {
+static int fg_wanted(void) {
     static int forced = -2;
-    if (forced == -2) forced = getenv("SAVAGEWIND_FG") ? atoi(getenv("SAVAGEWIND_FG")) : -1;
-    if (!(forced >= 0 ? forced : g_settings.frame_gen)) return false;
+    if (forced == -2) {
+        const char *e = getenv("SAVAGEWIND_FG");
+        forced = !e ? -1 : !strcmp(e, "dlss") ? FG_DLSS : !strcmp(e, "fsr3") ? FG_FSR3 : !strcmp(e, "off") ? FG_OFF : atoi(e);
+    }
+    int mode = forced >= 0 ? forced : g_settings.frame_gen;
+    if (mode <= FG_OFF || mode >= FG_COUNT) return 0;
+    if (mode == FG_DLSS && !frame_gen_available(FG_DLSS)) {
+        static int warned;
+        if (!warned++) LOG("[fg] NVIDIA DLSS Frame Generation can't run here: AMD FSR 3 instead\n");
+        mode = FG_FSR3;
+    }
     static int log = -1;
     static uint64_t n;
     if (log < 0) log = getenv("SAVAGEWIND_FG_LOG") != NULL;
     if (log && n++ % 300 == 0)
         LOG("[fg] wanted? title %d menu %d paused %d F1 menu %d\n", framepace_title_ui(), framepace_menu_ui(),
             framepace_paused(), menu_is_open());
-    return !framepace_title_ui() && !framepace_menu_ui() && !framepace_paused() && !menu_is_open();
+    return !framepace_title_ui() && !framepace_menu_ui() && !framepace_paused() && !menu_is_open() ? mode : 0;
 }
 
 static void present_locked(NvnTexture *t) {

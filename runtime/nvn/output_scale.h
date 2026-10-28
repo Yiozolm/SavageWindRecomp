@@ -18,6 +18,7 @@ void output_scale_screen(double sw, double sh, int iw, int ih, OutScale *o);
 // The upscaler (Video > Upscaler): whether this build has it (UPSCALE_*), a quality mode's factor (UPQ_*: render size
 // = window / factor per axis), and the factor in use (1: Off)
 bool upscaler_available(int u);
+bool frame_gen_available(int fg);  // FG_*: Video > Frame generation's choices this GPU can run
 bool upscale_modes_available(void);  // (rendering below the window's size: needs render-target scaling)
 double upscale_mode_factor(int q);
 double upscale_factor(void);

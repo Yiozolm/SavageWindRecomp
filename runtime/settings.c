@@ -100,7 +100,9 @@ void settings_load(void) {
             int a = atoi(val);
             g_settings.anisotropy = a >= 16 ? 4 : a >= 8 ? 3 : a >= 4 ? 2 : a >= 2 ? 1 : 0;
         }
-        else if (!strcmp(key, "frame_generation")) g_settings.frame_gen = atoi(val) != 0;
+        else if (!strcmp(key, "frame_generation"))  // (0 off, 1 AMD FSR 3, 2 NVIDIA DLSS; or their names)
+            g_settings.frame_gen = !strcmp(val, "dlss") || atoi(val) == FG_DLSS ? FG_DLSS
+                                 : !strcmp(val, "fsr3") || atoi(val) == FG_FSR3 ? FG_FSR3 : FG_OFF;
         else if (!strcmp(key, "sharpening")) {  // (percent, in steps of 10)
             int p = atoi(val);
             g_settings.sharpening = p < 0 ? 0 : p > 100 ? 10 : (p + 5) / 10;

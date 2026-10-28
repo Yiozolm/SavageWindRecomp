@@ -28,6 +28,7 @@
 
 #ifndef __APPLE__
 extern bool vk_dlss_available(void);
+extern bool vk_dlssg_available(void);
 #endif
 
 #define MAX_TEX 16384.0
@@ -38,6 +39,14 @@ bool upscaler_available(int u) {
     return u == UPSCALE_OFF || u == UPSCALE_METALFX;
 #else
     return u == UPSCALE_OFF || u == UPSCALE_FSR1 || (u == UPSCALE_DLSS && vk_dlss_available());
+#endif
+}
+
+bool frame_gen_available(int fg) {
+#ifdef __APPLE__
+    return fg == FG_OFF;
+#else
+    return fg == FG_OFF || fg == FG_FSR3 || (fg == FG_DLSS && vk_dlssg_available());
 #endif
 }
 

@@ -33,6 +33,9 @@ enum { VSYNC_ON = 0, VSYNC_FAST = 1, VSYNC_ADAPTIVE = 2, VSYNC_OFF = 3, VSYNC_CO
 // Video > HDR: Auto presents in HDR10 while Windows HDR is on for the window's monitor, On always (where the display
 // takes it), Off never (an SDR picture, which Windows shows dim and dull while its HDR is on)
 enum { HDR_AUTO = 0, HDR_ON = 1, HDR_OFF = 2, HDR_COUNT };
+// Video > Frame generation: a frame made between each two the game draws, by AMD FSR 3 (vulkan/framegen.cpp) or
+// NVIDIA DLSS Frame Generation (vulkan/dlss.cpp: RTX 40 and later, Windows)
+enum { FG_OFF = 0, FG_FSR3 = 1, FG_DLSS = 2, FG_COUNT };
 typedef struct {
     bool fullscreen;
     int window_w, window_h;  // Video > Window size, pixels (0: not chosen; runtime/window_size.c)
@@ -41,7 +44,7 @@ typedef struct {
     int antialias;       // AA_*: anti-aliasing of the game image before it is scaled to the window
     int anisotropy;      // texture filtering: 0 the game's own, 1..4 = 2x, 4x, 8x, 16x (vulkan/textures.c)
     int sharpening;      // AMD CAS sharpening of the 3D image, 0 (off) .. 10 (100%) (vulkan/exec.c scene_post)
-    bool frame_gen;      // AMD FSR 3 frame generation: a frame made between each two the game draws (vulkan/framegen.cpp)
+    int frame_gen;       // FG_*: frame generation, a frame made between each two the game draws
     float volume;        // master volume, 1 = 100%
     bool reverb;         // room reverb effect
     bool movie_audio;

@@ -22,6 +22,31 @@ bool vk_dlss_available(void);
 bool vk_dlss_apply(VkCommandBuffer cb, TexBackend *color, TexBackend *depth, TexBackend *motion,
                    TexBackend *output, unsigned quality, float jitter_x, float jitter_y, bool reset);
 
+// NVIDIA DLSS Frame Generation (Video > Frame generation: NVIDIA DLSS; NGX's own, 2x): exec.c vk_fg_generate's
+// inputs, the ones AMD FSR 3 takes (framegen.h FgFrame).
+typedef struct {
+    TexBackend *color;    // this frame as presented (with the HUD), read through view_format
+    TexBackend *hudless;  // ... without it, read through view_format
+    VkFormat view_format; // (the UNORM format of the two: the interpolated frame's)
+    TexBackend *depth;    // the 3D scene's depth
+    TexBackend *motion;   // camera motion vectors at depth's size (RG16F, uv: where each pixel was - here)
+    TexBackend *out;      // the interpolated frame (storage image, color's size and view_format)
+    // the world camera: view-projection now and in the previous frame, and projection (row-major, column vectors,
+    // OpenGL's clip space: z -1..1)
+    double vp[16], prev_vp[16], proj[16];
+    float ysign;          // the depth image's rows: uv.y = (ndc.y * ysign + 1) / 2 (exec.c cam_motion)
+    bool gl_depth;        // depth values are (z / w + 1) / 2, else z / w
+    float near_, far_, fovy;  // (fovy in radians)
+    float cam_pos[3], cam_up[3], cam_right[3], cam_fwd[3];
+    bool reset;           // a cut: no history
+} DlssgFrame;
+bool vk_dlssg_available(void);
+// Records the frame between the previous call's and this one into f->out. false: not made (logged); NGX unable to
+// make the feature at all: vk_dlssg_available false from then on.
+bool vk_dlssg_dispatch(VkCommandBuffer cb, const DlssgFrame *f);
+bool vk_dlssg_live(void);     // the feature is made (its VRAM held)
+void vk_dlssg_release(void);  // (the GPU idle first: the caller's)
+
 #ifdef __cplusplus
 }
 #endif

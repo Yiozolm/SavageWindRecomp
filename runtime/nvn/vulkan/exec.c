@@ -6271,6 +6271,16 @@ static int cam_best(uint32_t w, uint32_t h) {
     return best;
 }
 
+// The depth image's rows: uv.y = (ndc.y * ysign + 1) / 2
+static float fg_ysign(void) {
+    static float ysign;
+    if (!ysign) {
+        const char *e = getenv("SAVAGEWIND_FG_YSIGN");  // (testing: the image rows' direction)
+        ysign = e ? (float)atof(e) : renderer_origin_lower_left() ? 1.0f : -1.0f;
+    }
+    return ysign;
+}
+
 // The camera's motion vectors (fg_mv.frag) into mv (RG16F at db's size), for frame generation and DLSS (dlss_scene):
 // each pixel of db, the world camera's depth, back to a point in the world with this frame's view-projection (m: a
 // camera candidate's floats) and that point through prev_vp, the previous frame's (this one's at a cut): its uv then
@@ -6289,11 +6299,7 @@ static bool cam_motion(VkCommandBuffer cb, const float *m, const double *prev_vp
         }
     static const VkComponentMapping id = {0};
     VkImageView dv = vk_image_view(db, VK_IMAGE_VIEW_TYPE_2D, db->format, 0, 1, 0, 1, id, VK_IMAGE_ASPECT_DEPTH_BIT);
-    static float ysign;
-    if (!ysign) {
-        const char *e = getenv("SAVAGEWIND_FG_YSIGN");  // (testing: the image rows' direction)
-        ysign = e ? (float)atof(e) : renderer_origin_lower_left() ? 1.0f : -1.0f;
-    }
+    float ysign = fg_ysign();
     float pc[28] = {0};
     for (int r = 0; r < 4; r++)
         for (int c = 0; c < 4; c++) pc[c * 4 + r] = (float)mm[r * 4 + c];  // (GLSL: column-major)
@@ -6343,6 +6349,18 @@ TexBackend *vk_fg_generate(NvnTexture *t, TexBackend *b) {
     bool same = ob && ob->width == b->width && ob->height == b->height && fg.present_format == unorm_of(b->format);
     fg.present_format = unorm_of(b->format);
     if (fg.copy_pending) fg_copy_hudless();  // (nothing drawn after the composite)
+    {   // (the backend changed: the other one's contexts and images freed. DLSS's feature holds ~0.5 GB at 4K)
+        static int last;
+        int now_b = g_fg_want ? g_fg_want : last;  // (not over the menus: kept for when play goes on)
+        if (g_settings.frame_gen == FG_OFF && !getenv("SAVAGEWIND_FG")) now_b = FG_OFF;
+        if (now_b != last && (last == FG_FSR3 || (last == FG_DLSS && vk_dlssg_live()))) {
+            vk_fg_wait_idle();
+            if (last == FG_FSR3) fg_destroy();
+            else vk_dlssg_release();
+            LOG("[fg] %s frame generation freed\n", last == FG_FSR3 ? "AMD FSR 3" : "NVIDIA DLSS");
+        }
+        last = now_b;
+    }
     uint64_t now = SDL_GetTicksNS();
     float frame_ms = fg.last_ns ? (float)((now - fg.last_ns) / 1e6) : 16.7f;
     fg.last_ns = now;
@@ -6410,10 +6428,23 @@ TexBackend *vk_fg_generate(NvnTexture *t, TexBackend *b) {
             memcpy(f.cam_right, right, sizeof right), memcpy(f.cam_fwd, fwd, sizeof fwd);
             if (!g_fg_vk.dev) g_fg_vk = (FgVk){g_vk.phys, g_vk.dev, vk_fg_wait_idle};
             vk_full_barrier(cb);
-            if (g_gpuprof_frame) gp_mark(cb, "frame generation: FSR 3 optical flow + interpolation");
+            bool dlss = g_fg_want == FG_DLSS;
+            if (g_gpuprof_frame)
+                gp_mark(cb, dlss ? "frame generation: DLSS" : "frame generation: FSR 3 optical flow + interpolation");
             static int test = -1;  // (measuring) SAVAGEWIND_FG_TEST=2: no interpolation (the HUD-less copy shown instead)
             if (test < 0) test = getenv("SAVAGEWIND_FG_TEST") ? atoi(getenv("SAVAGEWIND_FG_TEST")) : 0;
-            ok = test == 2 ? true : fg_dispatch(cb, &cfg, &f);
+            if (test == 2) ok = true;
+            else if (dlss) {  // NVIDIA DLSS Frame Generation (dlss.cpp): the same inputs, and the camera's matrices
+                DlssgFrame d = {.color = b, .hudless = hl, .view_format = unorm_of(b->format), .depth = db, .motion = mv,
+                                .out = o, .ysign = fg_ysign(), .gl_depth = nvn_depth_mode() == 0, .near_ = f.near_,
+                                .far_ = f.far_, .fovy = f.fovy, .reset = reset};
+                memcpy(d.vp, vp, sizeof vp), memcpy(d.prev_vp, fg.prev_vp, sizeof d.prev_vp);
+                for (int i = 0; i < 16; i++) d.proj[i] = m[28 + i];
+                memcpy(d.cam_pos, pos, sizeof pos), memcpy(d.cam_up, up, sizeof up);
+                memcpy(d.cam_right, right, sizeof right), memcpy(d.cam_fwd, fwd, sizeof fwd);
+                ok = vk_dlssg_dispatch(cb, &d);
+            } else
+                ok = fg_dispatch(cb, &cfg, &f);
             if (test == 2) o = hl;
             vk_full_barrier(cb);
             if (g_gpuprof_frame) gp_mark(cb, "frame generation: done");
