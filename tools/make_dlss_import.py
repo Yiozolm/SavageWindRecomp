@@ -39,6 +39,9 @@ def main() -> int:
             "NVSDK_NGX_VULKAN_CreateFeature1",
             "NVSDK_NGX_VULKAN_ReleaseFeature",
             "NVSDK_NGX_VULKAN_Shutdown1",
+            "NVSDK_NGX_VULKAN_GetFeatureRequirements",
+            "NVSDK_NGX_VULKAN_GetFeatureInstanceExtensionRequirements",
+            "NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements",
         }
     ]
     if not names:
