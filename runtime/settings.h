@@ -3,19 +3,30 @@
 #include <stdbool.h>
 
 // Upscalers (Video > Upscaler; runtime/nvn/output_scale.c): Off renders at the window's size; the others render
-// smaller by their quality mode's factor and scale up to the window. FSR 3 and DLSS are listed as coming later.
+// smaller by their quality mode's factor and scale up to the window. DLSS is listed as coming later.
 enum { UPSCALE_OFF = 0, UPSCALE_METALFX = 1 /* macOS */, UPSCALE_FSR1 = 2 /* AMD FSR 1, Vulkan */,
-       UPSCALE_FSR3 = 3 /* AMD FSR 3: not yet */, UPSCALE_DLSS = 4 /* NVIDIA DLSS: not yet */, UPSCALE_COUNT };
+       UPSCALE_FSR3 = 3 /* AMD FSR 3.1, Vulkan where built in (vulkan/fsr3.h) */, UPSCALE_DLSS = 4 /* NVIDIA DLSS: not yet */,
+       UPSCALE_COUNT };
 #ifdef __APPLE__
 #define UPSCALE_SPATIAL UPSCALE_METALFX  // each OS's spatial upscaler
+#define UPSCALE_FSR3_OR_SPATIAL UPSCALE_METALFX  // (a settings file from another OS)
 #define UPSCALE_DEFAULT UPSCALE_METALFX  // (Metal has no internal resolution yet: MetalFX scales the image to the window)
 #else
 #define UPSCALE_SPATIAL UPSCALE_FSR1
+#define UPSCALE_FSR3_OR_SPATIAL UPSCALE_FSR3
 #define UPSCALE_DEFAULT UPSCALE_OFF      // the 3D image at the window's resolution
 #endif
-// quality modes, AMD's scale factors (per axis): Ultra Quality 1.3, Quality 1.5, Balanced 1.7, Performance 2.0
-enum { UPQ_ULTRA = 0, UPQ_QUALITY = 1, UPQ_BALANCED = 2, UPQ_PERFORMANCE = 3, UPQ_COUNT };
-enum { AA_OFF = 0, AA_SMAA = 1 };
+// quality modes, AMD's scale factors (per axis): Ultra Quality 1.3, Quality 1.5, Balanced 1.7, Performance 2.0,
+// Ultra Performance 3.0
+enum { UPQ_ULTRA = 0, UPQ_QUALITY = 1, UPQ_BALANCED = 2, UPQ_PERFORMANCE = 3, UPQ_ULTRA_PERFORMANCE = 4, UPQ_COUNT };
+// TAA (Vulkan): the game's own motion vectors (vulkan/mvec.c) and a jittered camera (output_scale.c rt_jitter_on)
+// blend each frame with the ones before it (vulkan/exec.c mvec_taa)
+enum { AA_OFF = 0, AA_SMAA = 1, AA_TAA = 2 };
+#ifdef __APPLE__
+#define AA_TAA_OR_SMAA AA_SMAA
+#else
+#define AA_TAA_OR_SMAA AA_TAA
+#endif
 // Shadow resolution (Video > Shadow resolution; runtime/nvn/output_scale.c shadow_map_size): the sun's shadow maps at
 // the console's size (BOTW: 896 x 896) or made bigger, for sharper shadows at some GPU time.
 enum { SHADOW_CONSOLE = 0, SHADOW_HIGH = 1 /* 2048 */, SHADOW_ULTRA = 2 /* 4096 */, SHADOW_EXTREME = 3 /* 8192 */, SHADOW_COUNT };
@@ -40,12 +51,16 @@ enum { FG_OFF = 0, FG_FSR3 = 1, FG_DLSS = 2, FG_COUNT };
 // makes that many; FSR 3: 2x)
 #define FG_MULT_MIN 2
 #define FG_MULT_MAX 4
+// Video > Fullscreen mode (runtime/window_size.c winsize_apply): Automatic is borderless at the desktop's size and the
+// display's own mode at any other size it has; Borderless never changes the display's mode (another size is scaled to
+// the screen); Exclusive always uses a display mode (the desktop's size too, at its highest refresh rate)
+enum { FSMODE_AUTO = 0, FSMODE_BORDERLESS = 1, FSMODE_EXCLUSIVE = 2, FSMODE_COUNT };
 typedef struct {
     bool fullscreen;
-    // Video > Display: the monitor the game shows on (runtime/window_size.c). 0: Automatic (where the window is; the
-    // primary display at start), else its place in the system's list (1..) and its name, which finds it again when
-    // the order changes
-    int display_index;
+    int fullscreen_mode;     // FSMODE_*
+    // Video > Monitor (runtime/window_size.c): 0 the window's own (where it is; the primary display at start), n the
+    // n-th display connected; display_name is its name, which finds it again when the displays come in another order
+    int display;
     char display_name[64];
     int window_w, window_h;  // Video > Window size, pixels (0: not chosen; runtime/window_size.c)
     int upscaler;        // UPSCALE_*: Off (render at the window's size), or render smaller and scale up
@@ -77,6 +92,7 @@ typedef struct {
     int hdr;             // HDR_* (runtime/nvn/vulkan/device.c hdr_*)
     int hdr_white;       // nits of SDR white in HDR (0: what Windows gives SDR content on that monitor)
     int fov;             // field of view in play, percent of the game's own (FOV_CHOICES)
+    int draw_distance;   // DRAWDIST_*: how far placed actors are kept (runtime/draw_distance.c)
     // Video > Colour (runtime/color_grade.h): 0 everywhere and no LUT = the game's own colours (nothing runs)
     int color_exposure;      // tenths of an EV, -20..20
     int color_contrast;      // percent, -50..50
@@ -92,6 +108,8 @@ typedef struct {
 } Settings;
 
 #define STICK_DEADZONE_DEFAULT 0.10f  // (the Switch's own input service has one: the game expects 0 at rest)
+enum { DRAWDIST_ORIGINAL, DRAWDIST_MEDIUM, DRAWDIST_HIGH, DRAWDIST_COUNT };  // (Original: the game's own distances)
+float draw_distance_factor(void);  // the setting's factor on the game's distances (1: Original)
 #define FOV_CHOICES {70, 80, 90, 100, 110, 120, 130, 140, 150}  // (percent; 100: the game's own)
 #define MOUSE_SENS_DEFAULT 3.0f  // (300% of the first default, 1; user, 2026-10-19)
 #define MOUSE_SENS_Y_CHOICES {50, 60, 70, 80, 90, 100, 110, 125, 150, 175, 200}  // (percent of the horizontal)
